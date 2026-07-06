@@ -65,7 +65,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050508;font-family:
   box-shadow:0 4px 20px rgba(34,197,94,.25);}
 
 /* Slots */
-.lb-slots{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;}
+.lb-slots{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;max-height:180px;overflow-y:auto;}
 .lb-slot{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:6px;
   padding:6px;text-align:center;font-size:9px;color:var(--textdim);min-height:52px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;transition:.2s;}
@@ -85,6 +85,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050508;font-family:
 
 /* Map grid */
 .map-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+.mode-grid{grid-template-columns:repeat(3,1fr);margin-bottom:8px;}
 .map-tile{border:2px solid var(--border);border-radius:8px;padding:10px 6px;text-align:center;
   cursor:pointer;transition:.2s;aspect-ratio:1.2;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:4px;background:rgba(255,255,255,.02);}
@@ -304,6 +305,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050508;font-family:
             </div>
           </div>
         </div>
+        <div class="lb-card-title" style="margin-top:8px">Mode de jeu</div>
+        <div class="map-grid mode-grid" id="mode-grid"></div>
         <div class="lb-card-title" style="margin-top:8px">Carte</div>
         <div class="map-grid" id="map-grid"></div>
       </div>
@@ -452,14 +455,19 @@ let MAP_CEIL   = 7.0;
 let CAM_MAX_Y  = 6.7;
 
 const MAPS = [
-  {id:'manor',    name:'Manoir',     icon:'🏚️'},
-  {id:'sewers',   name:'Égouts',     icon:'🚰'},
-  {id:'backrooms',name:'Backrooms',  icon:'🟡'},
-  {id:'indoor',   name:'Campagne',   icon:'🌿'},
-  {id:'hotel',    name:'Hôtel',      icon:'🐧'},
-  {id:'sugar',    name:'Sucre',      icon:'🍬'},
-  {id:'volcano',  name:'Volcan',     icon:'🌋'},
-  {id:'space',    name:'Espace',     icon:'🚀'},
+  {id:'manor',    name:'Manoir',       icon:'🏚️'},
+  {id:'sewers',   name:'Égouts',       icon:'🚰'},
+  {id:'backrooms',name:'Backrooms',    icon:'🟡'},
+  {id:'indoor',   name:'Campagne',     icon:'🌿'},
+  {id:'hotel',    name:'Hôtel',        icon:'🐧'},
+  {id:'sugar',    name:'Sugarland',    icon:'🍬'},
+  {id:'osaka',    name:'Osaka',        icon:'🏮'},
+];
+
+const MODES = [
+  {id:'classic',  name:'Classique', icon:'🎯', desc:'Chasseurs vs caméléons'},
+  {id:'infection',name:'Infection', icon:'🧟', desc:'Les touchés rejoignent la chasse'},
+  {id:'double',   name:'Double',    icon:'⚔️', desc:'Tout le monde se cache, puis tout le monde chasse'},
 ];
 
 const POSES = [
@@ -478,8 +486,9 @@ let db, roomRef, myId='', myName='', isHost=false, gameOn=false;
 let myRole='hider';
 let players={};
 let lastSync=0, rafId=null;
-let params={hunters:2,waitTime:60,gameTime:300,ammo:5,map:'manor'};
+let params={hunters:2,waitTime:60,gameTime:300,ammo:5,map:'manor',mode:'classic'};
 let selectedMap='manor';
+let selectedMode='classic';
 
 // Peinture
 let paintOpen=false, poseOpen=false, sbOpen=false;
@@ -1059,7 +1068,7 @@ function addWindow(x,y,z,ry,w,h,frameColor,glassColor){
 
 function buildMap(id){
   clearMap();
-  const ceilMap={manor:7.5,sewers:5.0,backrooms:3.0,indoor:999,hotel:8.0,sugar:6.5,volcano:999,space:999};
+  const ceilMap={manor:7.5,sewers:5.0,backrooms:3.0,indoor:999,hotel:8.0,sugar:6.5,osaka:999};
   MAP_CEIL=ceilMap[id]||7.0;CAM_MAX_Y=MAP_CEIL-.3;
 
   switch(id){
@@ -1227,53 +1236,38 @@ function buildMap(id){
       break;
     }
 
-    case 'volcano':{
-      scene.background=new THREE.Color(0x200600);scene.fog=new THREE.Fog(0x180400,16,60);
-      addSky('sky_volcano','#ff6a1a','#1a0400',150);
-      const lava=texLava('lava');
-      const groundTex=texNoiseStain('volc_ground','#2a0f00','#1a0800');
-      bxT(100,.5,100,groundTex,20,20,0,-.25,0);
-      cy(0,28,22,20,0x1e0800,0,11,0);cy(5,7,2,18,0x2d0f00,0,22,0);
-      const crater=new THREE.Mesh(new THREE.CircleGeometry(5,18),new THREE.MeshStandardMaterial({map:lava,emissive:0xff4400,emissiveIntensity:1.4,roughness:.4}));
-      crater.rotation.x=-Math.PI/2;crater.position.set(0,22.1,0);addM(crater);
-      for(let i=0;i<8;i++){
-        const a=i/8*Math.PI*2,r=15+Math.random()*20;
-        const crack=new THREE.Mesh(new THREE.PlaneGeometry(1.2,6+Math.random()*6),new THREE.MeshStandardMaterial({map:lava,emissive:0xff5500,emissiveIntensity:1.6,roughness:.5}));
-        crack.rotation.x=-Math.PI/2;crack.rotation.z=a;crack.position.set(Math.cos(a)*r,.03,Math.sin(a)*r);addM(crack);
+    case 'osaka':{
+      scene.background=new THREE.Color(0x0a0a16);scene.fog=new THREE.Fog(0x0a0a1c,18,80);
+      const road=texTile('osaka_road','#2b2b30','#242428',10);
+      const facade=texWood('osaka_facade','#6b4a30','#5a3c24','#2a1a10');
+      bxT(30,.5,90,road,6,24,0,-.25,0);
+      bx(4,.25,90,0x54545c,-13,.13,0,0,0,true);bx(4,.25,90,0x54545c,13,.13,0,0,0,true);
+      for(const side of[-1,1]){
+        for(let z=-38;z<=38;z+=9.5){
+          const h=4+Math.random()*3;
+          bxT(8,h,9,facade,3,Math.max(1,Math.round(h/2)),side*19,h/2,z,0,0,true);
+          const neonColors=[0xff2266,0x22ffee,0xffee33,0x66ff44,0xff8822];
+          const neon=bx(2.6,1,.15,0x111111,side*(19-4.6),2.6+Math.random()*1.6,z+(Math.random()*3-1.5),0,side>0?-Math.PI/2:Math.PI/2,true);
+          neon.material.emissive=new THREE.Color(neonColors[Math.floor(Math.random()*neonColors.length)]);
+          neon.material.emissiveIntensity=1.8;
+          const noren=bx(1.6,1.1,.06,0x9a1c1c,side*(19-4.6),1.4,z+2.6,0,side>0?-Math.PI/2:Math.PI/2,true);
+          noren.material.roughness=.9;
+        }
       }
-      for(let i=0;i<22;i++)sp(.5+Math.random()*3,0x1e0800,(Math.random()-.5)*80,.5,(Math.random()-.5)*80);
-      for(let i=0;i<10;i++)bx(2,.3,2,0x3a2010,-9+i*2,.5,0);
-      bx(.2,1,20,0x2a1808,-9,1,0,0,0,true);bx(.2,1,20,0x2a1808,9,1,0,0,0,true);
-      ptLight(0xff3300,3,35,0,23,0);ptLight(0xff6600,1,25,-20,3,20);ptLight(0xff5500,1,20,20,3,-20);
-      break;
-    }
-
-    case 'space':{
-      scene.background=new THREE.Color(0x00000a);scene.fog=new THREE.Fog(0x00000a,30,120);
-      addSky('sky_space','#0a0a2a','#000000',180);
-      const metalFloor=texMetalGrate('station_floor','#2a2a3e');
-      bxT(100,.5,100,metalFloor,20,20,0,-.25,0);
-      cy(8,8,.5,20,0x2a2a3e,0,.25,0);cy(4,4,.5,20,0x2a2a40,20,.25,20);cy(4,4,.5,20,0x2a2a40,-20,.25,-20);
-      for(let i=0;i<5;i++)cy(.05,.05,7,4,0x888899,Math.cos(i/5*Math.PI*2)*16,3.5,Math.sin(i/5*Math.PI*2)*16);
-      cy(1.5,1,5,8,0xccccdd,30,2.5,-30);cy(0,1.5,2,8,0xddddee,30,7,-30);
-      sp(6,0x4477aa,60,25,-70).material.roughness=.9;
-      sp(3,0xaa6644,-70,15,50).material.roughness=.9;
-      for(let i=0;i<16;i++){
-        const x=(Math.random()-.5)*90,z=(Math.random()-.5)*90;
-        if(Math.hypot(x,z)<15)continue;
-        const ast=new THREE.Mesh(new THREE.IcosahedronGeometry(.4+Math.random()*.8,0),new THREE.MeshStandardMaterial({color:0x555566,roughness:1}));
-        ast.position.set(x,.5+Math.random()*2,z);addM(ast);
+      for(let z=-34;z<=34;z+=8){
+        const lant=sp(.32,0xdd2222,0,4.1,z);lant.material.emissive=new THREE.Color(0xff4400);lant.material.emissiveIntensity=1.3;
+        bx(26.2,.03,.03,0x1a1a1a,0,4.9,z,0,0,true);
       }
-      [[10,0],[-10,0],[0,10]].forEach(([x,z])=>{cy(1.2,1.2,3,12,0xd0d0d8,x,1.5,z);addCol(x,1.5,z,2.4,3,2.4);});
-      const sg=new THREE.BufferGeometry();const sp2=new Float32Array(3000);
-      for(let i=0;i<1000;i++){
-        const r=60+Math.random()*130,th=Math.random()*Math.PI*2,ph=Math.acos(Math.random()*2-1);
-        sp2[i*3]=r*Math.sin(ph)*Math.cos(th);sp2[i*3+1]=Math.abs(r*Math.sin(ph)*Math.sin(th))+5;sp2[i*3+2]=r*Math.cos(ph);
+      bx(.5,5,.5,0xcc2222,-3.2,2.5,-36,0,0,true);bx(.5,5,.5,0xcc2222,3.2,2.5,-36,0,0,true);
+      bx(8.4,.6,.9,0xcc2222,0,5.1,-36,0,0,true);bx(7.2,.35,.7,0x901818,0,4.5,-36,0,0,true);
+      for(const [x,z] of [[-11,10],[-11,16],[11,-8],[11,22]]){
+        bx(1,2,.7,0xe8e8ec,x,1,z,0,0,true);
+        const glow=bx(.7,1.2,.05,0x66ffee,x+(x<0?-.36:.36),1.1,z,0,0,true);
+        glow.material.emissive=new THREE.Color(0x66ffee);glow.material.emissiveIntensity=1.2;
       }
-      sg.setAttribute('position',new THREE.BufferAttribute(sp2,3));
-      const sm=new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:.6,sizeAttenuation:false}));
-      scene.add(sm);mapObj.push(sm);
-      ptLight(0x4466ff,.6,45,0,12,0);ptLight(0x0066ff,.4,25,30,8,-30);
+      for(let i=0;i<10;i++)bx(.12,3.2,.12,0x2a2a2a,(Math.random()>.5?-12.6:12.6),1.6,-40+i*8,0,0,true);
+      ptLight(0xff88cc,.9,22,0,5,0);ptLight(0x66ffee,.6,18,-15,4,-20);ptLight(0xffee66,.6,18,15,4,20);
+      ptLight(0xff4400,.5,10,0,4.3,-36);
       break;
     }
   }
@@ -1288,11 +1282,24 @@ function buildMapUI(){
     const t=document.createElement('div');
     t.className='map-tile'+(m.id===selectedMap?' sel':'');
     t.innerHTML='<div class="map-tile-icon">'+m.icon+'</div><div class="map-tile-name">'+m.name+'</div>';
-    t.onclick=()=>{selectedMap=m.id;params.map=m.id;document.querySelectorAll('.map-tile').forEach(x=>x.classList.remove('sel'));t.classList.add('sel');};
+    t.onclick=()=>{selectedMap=m.id;params.map=m.id;document.querySelectorAll('#map-grid .map-tile').forEach(x=>x.classList.remove('sel'));t.classList.add('sel');};
     g.appendChild(t);
   });
 }
 buildMapUI();
+
+function buildModeUI(){
+  const g=document.getElementById('mode-grid');g.innerHTML='';
+  MODES.forEach(m=>{
+    const t=document.createElement('div');
+    t.className='map-tile'+(m.id===selectedMode?' sel':'');
+    t.title=m.desc;
+    t.innerHTML='<div class="map-tile-icon">'+m.icon+'</div><div class="map-tile-name">'+m.name+'</div>';
+    t.onclick=()=>{selectedMode=m.id;params.mode=m.id;document.querySelectorAll('#mode-grid .map-tile').forEach(x=>x.classList.remove('sel'));t.classList.add('sel');};
+    g.appendChild(t);
+  });
+}
+buildModeUI();
 
 const PLIMITS={hunters:[1,8],waitTime:[10,180],gameTime:[60,600],ammo:[1,30]};
 function adj(k,d){
@@ -1326,7 +1333,7 @@ document.getElementById('l-join').onclick=()=>{
   roomRef.child('players').once('value',snap=>{
     const ex=snap.val()||{};
     if(Object.values(ex).some(p=>p.name?.toLowerCase()===myName.toLowerCase())){lstat('⚠ Pseudo déjà pris');return;}
-    if(Object.keys(ex).length>=10){lstat('⚠ Salle pleine');return;}
+    if(Object.keys(ex).length>=24){lstat('⚠ Salle pleine (24 max)');return;}
 
     roomRef.child('players/'+myId).set({name:myName,x:0,y:1,z:5,ry:0,pose:0,role:'hider',dead:false,kills:0,ready:false,colors:JSON.stringify(myColors)});
     roomRef.child('players/'+myId).onDisconnect().remove();
@@ -1361,7 +1368,21 @@ document.getElementById('l-join').onclick=()=>{
 
     roomRef.child('shots').on('child_added',s=>{
       const sh=s.val();if(!sh||sh.shooter===myId)return;
-      if(sh.target===myId&&!isDead){isDead=true;roomRef.child('players/'+myId+'/dead').set(true);document.getElementById('dead-screen').classList.add('on');}
+      if(sh.target===myId&&!isDead){
+        if(params.mode==='infection'){
+          myRole='hunter';
+          roomRef.child('players/'+myId+'/role').set('hunter');
+          const rp=document.getElementById('role-pill');
+          rp.textContent='🧟 Infecté';rp.className='role-pill hunter';
+          document.getElementById('crosshair').style.display='block';
+          document.getElementById('crosshair-dot').style.display='block';
+          document.getElementById('ammo-hud').style.display='flex';
+          ammoLeft=params.ammo||5;
+          updateAmmoDots();
+        }else{
+          isDead=true;roomRef.child('players/'+myId+'/dead').set(true);document.getElementById('dead-screen').classList.add('on');
+        }
+      }
       addKill(sh.sName+' → '+sh.tName);
       if(isHost)roomRef.child('shots/'+s.key).remove();
     });
@@ -1391,7 +1412,7 @@ document.getElementById('l-start').onclick=()=>{
 function updateLobbySlots(data){
   const box=document.getElementById('l-slots');box.innerHTML='';
   const arr=Object.entries(data);
-  for(let i=0;i<10;i++){
+  for(let i=0;i<24;i++){
     const div=document.createElement('div');
     if(i<arr.length){
       const[id,p]=arr[i],isme=id===myId;
@@ -1422,8 +1443,14 @@ function handlePhase(newPhase,stateData){
   if(newPhase==='hunting'){
     phaseTimer=params.gameTime||300;
     banner.style.cssText='display:block;color:#f87171;';
-    banner.innerHTML='🔫 LA CHASSE COMMENCE !';
+    banner.innerHTML=params.mode==='double'?'⚔️ TOUT LE MONDE CHASSE !':'🔫 LA CHASSE COMMENCE !';
     setTimeout(()=>{banner.style.display='none';},3000);
+    if(params.mode==='double'&&!isDead){
+      myRole='hunter';
+      roomRef.child('players/'+myId+'/role').set('hunter');
+      const rp=document.getElementById('role-pill');
+      rp.textContent='⚔️ Chasseur';rp.className='role-pill hunter';
+    }
     if(myRole==='hunter'){
       document.getElementById('crosshair').style.display='block';
       document.getElementById('crosshair-dot').style.display='block';
@@ -1432,25 +1459,31 @@ function handlePhase(newPhase,stateData){
       updateAmmoDots();
     }
   }
-  if(newPhase==='end_hiders'||newPhase==='end_hunters'){
+  if(newPhase==='end_hiders'||newPhase==='end_hunters'||newPhase==='end_double'){
     const es=document.getElementById('end-screen');
     const et=document.getElementById('end-title');
     es.classList.add('on');
-    if(newPhase==='end_hiders'){et.textContent='🦎 Les cachés gagnent !';et.className='end-title win';}
-    else{et.textContent='🔫 Les chasseurs gagnent !';et.className='end-title lose';}
+    if(newPhase==='end_hiders'){et.textContent='🦎 Les caméléons gagnent !';et.className='end-title win';}
+    else if(newPhase==='end_hunters'){et.textContent='🔫 Les chasseurs gagnent !';et.className='end-title lose';}
+    else{
+      const win=stateData&&stateData.winnerName;
+      et.textContent=win?('🏆 '+win+' gagne !'):('🏆 Survivants : '+((stateData&&stateData.survivors)||'—'));
+      et.className='end-title win';
+    }
   }
 }
 
 function assignRoles(){
   const all=Object.keys(players).concat([myId]);
   for(let i=all.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[all[i],all[j]]=[all[j],all[i]];}
-  const nH=Math.min(params.hunters||2,all.length-1);
+  // Mode Double : personne n'est chasseur pendant la phase de cachette, tout le monde bascule au début de la chasse.
+  const nH=params.mode==='double'?0:Math.min(params.hunters||2,all.length-1);
   const upd={};
-  all.forEach((id,i)=>{upd['players/'+id+'/role']=i<nH?'hunter':'hider';});
+  all.forEach((id,i)=>{upd['players/'+id+'/role']=i<nH?'hunter':'hider';upd['players/'+id+'/dead']=false;});
   roomRef.update(upd);
   myRole=upd['players/'+myId+'/role']||'hider';
   const rp=document.getElementById('role-pill');
-  rp.textContent=myRole==='hunter'?'🔫 Chasseur':'🦎 Caché';
+  rp.textContent=myRole==='hunter'?'🔫 Chasseur':'🦎 Caméléon';
   rp.className='role-pill '+(myRole==='hunter'?'hunter':'hider');
 }
 
@@ -1508,7 +1541,8 @@ function shoot(){
   raycaster.setFromCamera({x:0,y:0},camera);
   let hit=null,hd=Infinity;
   Object.entries(players).forEach(([id,p])=>{
-    if(p.dead||p.role==='hunter')return;
+    if(p.dead)return;
+    if(params.mode!=='double'&&p.role==='hunter')return;
     const meshes=[];p.mesh.traverse(c=>{if(c.isMesh)meshes.push(c);});
     const ints=raycaster.intersectObjects(meshes);
     if(ints.length>0&&ints[0].distance<hd){hd=ints[0].distance;hit={id,name:p.name};}
@@ -1895,13 +1929,32 @@ function loop(){
     phaseTimer--;
     const m=Math.floor(phaseTimer/60),s=phaseTimer%60;
     document.getElementById('timer').textContent=m+':'+(s<10?'0':'')+s;
+    // Fin anticipée dès que la condition de victoire est atteinte (sans attendre le chrono)
+    if(isHost&&phase==='hunting'){
+      roomRef.child('players').once('value',sn=>{
+        const d=sn.val()||{};
+        if(phase!=='hunting')return;
+        if(params.mode==='double'){
+          const alive=Object.values(d).filter(p=>!p.dead);
+          if(alive.length<=1)roomRef.child('state').update({phase:'end_double',winnerName:alive.length===1?alive[0].name:null,survivors:alive.map(p=>p.name).join(', ')});
+        }else{
+          const ha=Object.values(d).filter(p=>p.role==='hider'&&!p.dead).length;
+          if(ha===0)roomRef.child('state').update({phase:'end_hunters'});
+        }
+      });
+    }
     if(phaseTimer===0&&isHost){
       if(phase==='hiding')roomRef.child('state').update({phase:'hunting'});
       else if(phase==='hunting'){
         roomRef.child('players').once('value',sn=>{
           const d=sn.val()||{};
-          const ha=Object.values(d).filter(p=>p.role==='hider'&&!p.dead).length;
-          roomRef.child('state').update({phase:ha>0?'end_hiders':'end_hunters'});
+          if(params.mode==='double'){
+            const alive=Object.values(d).filter(p=>!p.dead);
+            roomRef.child('state').update({phase:'end_double',winnerName:alive.length===1?alive[0].name:null,survivors:alive.map(p=>p.name).join(', ')});
+          }else{
+            const ha=Object.values(d).filter(p=>p.role==='hider'&&!p.dead).length;
+            roomRef.child('state').update({phase:ha>0?'end_hiders':'end_hunters'});
+          }
         });
       }
     }
