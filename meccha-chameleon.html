@@ -259,6 +259,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050508;font-family:
           <input class="lb-input" id="l-name" placeholder="Ton pseudo" maxlength="14" style="flex:2">
           <input class="lb-input" id="l-room" placeholder="ROOM1" maxlength="10" style="flex:1">
         </div>
+        <div class="lb-card-title" style="margin-top:8px">Ton personnage</div>
+        <div class="map-grid" id="body-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:8px"></div>
         <div class="lb-row">
           <button class="lb-btn lb-btn-primary" id="l-join">Rejoindre</button>
         </div>
@@ -346,12 +348,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050508;font-family:
     <div class="pp-close" id="pp-close">✕</div>
   </div>
   <div class="pp-body">
-    <!-- Aperçu 3D du perso -->
+    <!-- Aperçu 3D du perso : feuille vierge, glisser pour peindre au pinceau -->
     <canvas id="preview-cv"></canvas>
+    <div style="font-size:9px;color:var(--textdim);text-align:center;margin-top:-6px">🖌️ Glisse sur le personnage pour peindre au pinceau</div>
 
-    <!-- Zones corporelles -->
+    <!-- Zones corporelles (pour le pot de peinture ci-dessous) -->
     <div>
-      <div class="zones-title">Zone à peindre</div>
+      <div class="zones-title">Zone à remplir (pot de peinture)</div>
       <div class="zones-grid" id="zones-grid">
         <div class="zone-btn active" data-zone="all"><span class="zone-icon">🧍</span>Tout</div>
         <div class="zone-btn" data-zone="head"><span class="zone-icon">😶</span>Tête</div>
@@ -401,8 +404,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#050508;font-family:
     <div class="color-preview" id="color-preview">Aperçu</div>
 
     <!-- Boutons -->
-    <button class="pp-apply" id="pp-apply-zone">Appliquer sur la zone</button>
-    <button class="pp-apply pp-apply-all" id="pp-apply-all">Appliquer sur tout le corps</button>
+    <button class="pp-apply" id="pp-apply-zone">🪣 Remplir la zone</button>
+    <button class="pp-apply pp-apply-all" id="pp-apply-all">🪣 Remplir tout le corps</button>
   </div>
 </div>
 
@@ -503,6 +506,14 @@ let yaw=0, pitch=0;
 let currentPose=0, isDead=false;
 let ammoLeft=5, phase='waiting', phaseTimer=0;
 let shootCd=0;
+
+// Type de corps choisi au départ
+let myBodyType='meccha';
+const BODY_TYPES=[
+  {id:'meccha',   name:'Caméléon', icon:'🦎', desc:'Silhouette articulée façon Meccha Chameleon'},
+  {id:'figure',   name:'Mannequin',icon:'🤍', desc:'Pantin d’atelier tout lisse, comme sur la photo'},
+  {id:'minecraft',name:'Cubique',  icon:'🧊', desc:'Blocs à la Minecraft'},
+];
 
 // Couleurs par zone (mon perso)
 let myColors={
@@ -622,11 +633,23 @@ pvCv.addEventListener('wheel',e=>{pvDist=Math.max(2.5,Math.min(7,pvDist+e.deltaY
 // ════════════════════════════════════════════════════
 //  MANNEQUIN 3D DÉTAILLÉ (triple A style)
 // ════════════════════════════════════════════════════
+// Chaque matériau de zone porte son propre canvas peignable (comme une
+// "feuille" Paint vierge) : la couleur de base remplit le canvas, et les
+// coups de pinceau viennent ensuite y dessiner des touches localisées.
+const PAINT_TEX_SIZE=48;
 function makeMat(h=0,s=0,l=85,met=0,rug=50){
-  return new THREE.MeshStandardMaterial({
-    color:new THREE.Color('hsl('+h+','+s+'%,'+l+'%)'),
-    metalness:met/100,roughness:rug/100,envMapIntensity:.8
+  const cv=document.createElement('canvas');cv.width=cv.height=PAINT_TEX_SIZE;
+  const ctx=cv.getContext('2d');
+  ctx.fillStyle='hsl('+h+','+s+'%,'+l+'%)';
+  ctx.fillRect(0,0,PAINT_TEX_SIZE,PAINT_TEX_SIZE);
+  const tex=new THREE.CanvasTexture(cv);
+  const mat=new THREE.MeshStandardMaterial({
+    map:tex,metalness:met/100,roughness:rug/100,envMapIntensity:.8
   });
+  mat.userData.paintCanvas=cv;
+  mat.userData.paintCtx=ctx;
+  mat.userData.paintTex=tex;
+  return mat;
 }
 
 // Capsule compatible Three.js r128 (CylinderGeometry + SphereGeometry mergées via Group)
@@ -673,14 +696,14 @@ function createMannequin(colorsObj){
   headGrp.position.y=1.72;
   grp.add(headGrp);
 
-  // ── COU ──
-  const neck=new THREE.Mesh(new THREE.CylinderGeometry(.07,.09,.18,10),getMat('torso'));
+  // ── COU + TORSE (même matériau de zone, partagé pour une coloration cohérente) ──
+  const torsoMat=getMat('torso');
+  const neck=new THREE.Mesh(new THREE.CylinderGeometry(.07,.09,.18,10),torsoMat);
   neck.position.y=1.51;grp.add(neck);
 
-  // ── TORSE ──
   const torsoGrp=new THREE.Group();
   // Corps principal
-  const torso=makeCapsule(.28,.45,8,getMat('torso'));
+  const torso=makeCapsule(.28,.45,8,torsoMat);
   torso.position.y=0;torsoGrp.add(torso);
   // Poitrine plus prononcée
   const chest=new THREE.Mesh(new THREE.SphereGeometry(.24,10,8),mats['torso']);
@@ -736,7 +759,7 @@ function createMannequin(colorsObj){
     // Pied
     const foot=new THREE.Mesh(new THREE.BoxGeometry(.12,.06,.24),mat);
     foot.position.set(0,-.9,.06);lg.add(foot);
-    lg.position.set(side*.16,.7,0);
+    lg.position.set(side*.16,.93,0);
     grp.add(lg);
     return lg;
   }
@@ -750,34 +773,166 @@ function createMannequin(colorsObj){
   return grp;
 }
 
+// ── Variante "Mannequin d'atelier" : pantin lisse sans visage, gros joints
+// ronds, mains/pieds en palette — calqué sur le mannequin en bois de la photo.
+function createFigureMannequin(colorsObj){
+  const grp=new THREE.Group();
+  const mats={};
+  function getMat(zone){
+    const c=colorsObj?colorsObj[zone]:{h:0,s:0,l:85,met:0,rug:50};
+    const mat=makeMat(c.h,c.s,c.l,c.met||0,c.rug||50);
+    mats[zone]=mat;
+    return mat;
+  }
+  const headGrp=new THREE.Group();
+  const skull=new THREE.Mesh(new THREE.SphereGeometry(.19,20,20),getMat('head'));
+  headGrp.add(skull);
+  headGrp.position.y=1.72;
+  grp.add(headGrp);
+
+  const torsoMat=getMat('torso');
+  const neck=new THREE.Mesh(new THREE.CylinderGeometry(.055,.07,.12,10),torsoMat);
+  neck.position.y=1.56;grp.add(neck);
+
+  const torsoGrp=new THREE.Group();
+  const torso=makeCapsule(.17,.62,10,torsoMat);
+  torsoGrp.add(torso);
+  torsoGrp.position.y=1.14;
+  grp.add(torsoGrp);
+
+  function makeArm(side,zoneKey){
+    const ag=new THREE.Group();
+    const mat=getMat(zoneKey);
+    const shoulder=new THREE.Mesh(new THREE.SphereGeometry(.1,14,14),mat);
+    ag.add(shoulder);
+    const upper=makeCapsule(.055,.32,8,mat);
+    upper.position.y=-.2;ag.add(upper);
+    const elbow=new THREE.Mesh(new THREE.SphereGeometry(.065,12,12),mat);
+    elbow.position.y=-.36;ag.add(elbow);
+    const lower=makeCapsule(.045,.28,8,mat);
+    lower.position.y=-.53;ag.add(lower);
+    const hand=new THREE.Mesh(new THREE.SphereGeometry(.06,10,10),mat);
+    hand.scale.set(1,1.3,.55);hand.position.y=-.7;ag.add(hand);
+    ag.position.set(side*.24,1.42,0);
+    grp.add(ag);
+    return ag;
+  }
+  const armL=makeArm(-1,'armL');
+  const armR=makeArm(1,'armR');
+
+  function makeLeg(side,zoneKey){
+    const lg=new THREE.Group();
+    const mat=getMat(zoneKey);
+    const hip=new THREE.Mesh(new THREE.SphereGeometry(.1,14,14),mat);
+    lg.add(hip);
+    const thigh=makeCapsule(.07,.36,8,mat);
+    thigh.position.y=-.22;lg.add(thigh);
+    const knee=new THREE.Mesh(new THREE.SphereGeometry(.075,12,12),mat);
+    knee.position.y=-.42;lg.add(knee);
+    const shin=makeCapsule(.055,.32,8,mat);
+    shin.position.y=-.62;lg.add(shin);
+    const foot=new THREE.Mesh(new THREE.SphereGeometry(.075,10,10),mat);
+    foot.scale.set(1,.5,1.7);foot.position.set(0,-.8,.05);lg.add(foot);
+    lg.position.set(side*.11,.84,0);
+    grp.add(lg);
+    return lg;
+  }
+  const legL=makeLeg(-1,'legL');
+  const legR=makeLeg(1,'legR');
+
+  grp.traverse(c=>{if(c.isMesh){c.castShadow=true;c.receiveShadow=true;}});
+  grp.userData={parts:{headGrp,torsoGrp,armL,armR,legL,legR},mats};
+  return grp;
+}
+
+// ── Variante "Cubique" façon Minecraft : blocs assemblés ──
+function createBlockMannequin(colorsObj){
+  const grp=new THREE.Group();
+  const mats={};
+  function getMat(zone){
+    const c=colorsObj?colorsObj[zone]:{h:0,s:0,l:85,met:0,rug:50};
+    const mat=makeMat(c.h,c.s,c.l,c.met||0,c.rug||50);
+    mats[zone]=mat;
+    return mat;
+  }
+  const headGrp=new THREE.Group();
+  const headBox=new THREE.Mesh(new THREE.BoxGeometry(.5,.5,.5),getMat('head'));
+  headGrp.add(headBox);
+  headGrp.position.y=1.62;
+  grp.add(headGrp);
+
+  const torsoGrp=new THREE.Group();
+  const torsoBox=new THREE.Mesh(new THREE.BoxGeometry(.5,.75,.28),getMat('torso'));
+  torsoGrp.add(torsoBox);
+  torsoGrp.position.y=1.12;
+  grp.add(torsoGrp);
+
+  function makeArm(side,zoneKey){
+    const ag=new THREE.Group();
+    const mat=getMat(zoneKey);
+    const arm=new THREE.Mesh(new THREE.BoxGeometry(.25,.75,.25),mat);
+    arm.position.y=-.375;ag.add(arm);
+    ag.position.set(side*.375,1.475,0);
+    grp.add(ag);
+    return ag;
+  }
+  const armL=makeArm(-1,'armL');
+  const armR=makeArm(1,'armR');
+
+  function makeLeg(side,zoneKey){
+    const lg=new THREE.Group();
+    const mat=getMat(zoneKey);
+    const leg=new THREE.Mesh(new THREE.BoxGeometry(.25,.75,.25),mat);
+    leg.position.y=-.375;lg.add(leg);
+    lg.position.set(side*.13,.75,0);
+    grp.add(lg);
+    return lg;
+  }
+  const legL=makeLeg(-1,'legL');
+  const legR=makeLeg(1,'legR');
+
+  grp.traverse(c=>{if(c.isMesh){c.castShadow=true;c.receiveShadow=true;}});
+  grp.userData={parts:{headGrp,torsoGrp,armL,armR,legL,legR},mats};
+  return grp;
+}
+
+function createCharacterMesh(bodyType,colorsObj){
+  if(bodyType==='minecraft')return createBlockMannequin(colorsObj);
+  if(bodyType==='figure')return createFigureMannequin(colorsObj);
+  return createMannequin(colorsObj);
+}
+
 // Appliquer une pose
 const D=Math.PI/180;
 function applyPose(grp,poseIdx){
   const{headGrp,torsoGrp,armL,armR,legL,legR}=grp.userData.parts;
   // Reset
   [headGrp,torsoGrp,armL,armR,legL,legR].forEach(p=>{p.rotation.set(0,0,0);p.position.y=p.userData?.baseY||p.position.y;});
+  let yOff=0;
   switch(poseIdx%20){
-    case 1: legL.rotation.x=-85*D;legR.rotation.x=-85*D;torsoGrp.rotation.x=18*D;grp.position.y=-0.35;break;
-    case 2: torsoGrp.rotation.x=-82*D;armL.rotation.x=-55*D;armR.rotation.x=-55*D;legL.rotation.x=-8*D;legR.rotation.x=-8*D;grp.position.y=-0.9;break;
-    case 3: torsoGrp.rotation.x=82*D;grp.position.y=-0.9;break;
-    case 4: legL.rotation.x=-88*D;torsoGrp.rotation.x=12*D;grp.position.y=-0.3;break;
+    case 1: legL.rotation.x=-85*D;legR.rotation.x=-85*D;torsoGrp.rotation.x=18*D;yOff=-0.35;break;
+    case 2: torsoGrp.rotation.x=-82*D;armL.rotation.x=-55*D;armR.rotation.x=-55*D;legL.rotation.x=-8*D;legR.rotation.x=-8*D;yOff=-0.9;break;
+    case 3: torsoGrp.rotation.x=82*D;yOff=-0.9;break;
+    case 4: legL.rotation.x=-88*D;torsoGrp.rotation.x=12*D;yOff=-0.3;break;
     case 5: armL.rotation.x=-165*D;armR.rotation.x=-165*D;break;
-    case 6: legL.rotation.z=45*D;legR.rotation.z=-45*D;legL.rotation.x=-65*D;legR.rotation.x=-65*D;armL.rotation.z=35*D;armR.rotation.z=-35*D;grp.position.y=-0.2;break;
-    case 7: torsoGrp.rotation.x=-38*D;armL.rotation.x=155*D;armR.rotation.x=155*D;legL.rotation.x=32*D;legR.rotation.x=32*D;grp.position.y=-0.3;break;
-    case 8: torsoGrp.rotation.x=-87*D;armL.rotation.x=-92*D;armR.rotation.x=-92*D;grp.position.y=-0.55;break;
-    case 9: legL.rotation.x=-72*D;legR.rotation.x=-72*D;torsoGrp.rotation.x=22*D;grp.position.y=-0.25;break;
+    case 6: legL.rotation.z=45*D;legR.rotation.z=-45*D;legL.rotation.x=-65*D;legR.rotation.x=-65*D;armL.rotation.z=35*D;armR.rotation.z=-35*D;yOff=-0.2;break;
+    case 7: torsoGrp.rotation.x=-38*D;armL.rotation.x=155*D;armR.rotation.x=155*D;legL.rotation.x=32*D;legR.rotation.x=32*D;yOff=-0.3;break;
+    case 8: torsoGrp.rotation.x=-87*D;armL.rotation.x=-92*D;armR.rotation.x=-92*D;yOff=-0.55;break;
+    case 9: legL.rotation.x=-72*D;legR.rotation.x=-72*D;torsoGrp.rotation.x=22*D;yOff=-0.25;break;
     case 10: torsoGrp.rotation.x=-52*D;armL.rotation.x=-42*D;armR.rotation.x=-42*D;break;
     case 11: torsoGrp.rotation.z=32*D;armL.rotation.z=65*D;armR.rotation.z=-22*D;break;
     case 12: armL.rotation.z=92*D;armR.rotation.z=-92*D;break;
     case 13: armL.rotation.z=62*D;armR.rotation.z=-62*D;legL.rotation.z=32*D;legR.rotation.z=-32*D;break;
-    case 14: torsoGrp.rotation.x=-32*D;legL.rotation.x=-125*D;legR.rotation.x=-125*D;armL.rotation.x=-82*D;armR.rotation.x=-82*D;grp.position.y=-0.18;break;
+    case 14: torsoGrp.rotation.x=-32*D;legL.rotation.x=-125*D;legR.rotation.x=-125*D;armL.rotation.x=-82*D;armR.rotation.x=-82*D;yOff=-0.18;break;
     case 15: armL.rotation.z=32*D;armR.rotation.z=-32*D;armL.rotation.x=-32*D;armR.rotation.x=-32*D;break;
     case 16: legL.rotation.x=-135*D;armL.rotation.x=-155*D;break;
-    case 17: torsoGrp.rotation.x=-89*D;armL.rotation.x=-102*D;armR.rotation.x=-102*D;grp.position.y=-0.9;break;
+    case 17: torsoGrp.rotation.x=-89*D;armL.rotation.x=-102*D;armR.rotation.x=-102*D;yOff=-0.9;break;
     case 18: armL.rotation.x=-32*D;armR.rotation.x=-62*D;armL.rotation.z=18*D;torsoGrp.rotation.y=22*D;break;
     case 19: armL.rotation.z=62*D;armL.rotation.x=-32*D;armR.rotation.z=-62*D;armR.rotation.x=-32*D;break;
-    default: grp.position.y=0;
   }
+  // Décalage vertical de la pose (assis/allongé…) : mémorisé pour être combiné
+  // avec la hauteur réelle du personnage (sol / saut) par l'appelant.
+  grp.userData.poseYOffset=yOff;
 }
 
 // Appliquer couleurs par zone
@@ -785,11 +940,19 @@ function applyZoneColor(grp,zone,h,s,l,met,rug){
   const mats=grp.userData.mats;
   const zones=zone==='all'?['head','torso','armL','armR','legL','legR']:[zone];
   zones.forEach(z=>{
-    if(mats[z]){
-      mats[z].color.set('hsl('+h+','+s+'%,'+l+'%)');
-      mats[z].metalness=met/100;
-      mats[z].roughness=rug/100;
-      mats[z].needsUpdate=true;
+    const m=mats[z];
+    if(m){
+      // "Pot de peinture" : remplit toute la feuille de la zone d'une couleur unie
+      if(m.userData.paintCtx){
+        m.userData.paintCtx.fillStyle='hsl('+h+','+s+'%,'+l+'%)';
+        m.userData.paintCtx.fillRect(0,0,PAINT_TEX_SIZE,PAINT_TEX_SIZE);
+        m.userData.paintTex.needsUpdate=true;
+      }else{
+        m.color.set('hsl('+h+','+s+'%,'+l+'%)');
+      }
+      m.metalness=met/100;
+      m.roughness=rug/100;
+      m.needsUpdate=true;
     }
   });
 }
@@ -802,12 +965,12 @@ let pvMesh=null; // dans la scène preview
 
 function initMyMesh(){
   if(myMesh) scene.remove(myMesh);
-  myMesh=createMannequin(myColors);
+  myMesh=createCharacterMesh(myBodyType,myColors);
   myMesh.position.set(pos.x,0,pos.z);
   scene.add(myMesh);
 
   if(pvMesh) pvScene.remove(pvMesh);
-  pvMesh=createMannequin(myColors);
+  pvMesh=createCharacterMesh(myBodyType,myColors);
   pvScene.add(pvMesh);
 }
 
@@ -1164,12 +1327,21 @@ function buildMap(id){
       const dirt=texTile('dirt','#b89060','#a8824c',2);
       bxT(120,.5,120,grass,30,30,0,-.25,0);
       const woodHouse=texWood('house_wood','#a07850','#8a6440','#5a3c20');
-      bxT(14,5,10,woodHouse,4,3,0,2.5,-15);
+      // Ferme creuse et traversable : murs séparés avec une vraie porte ouverte (pas de bloc plein)
+      bxT(.4,5,10,woodHouse,1,3,-7,2.5,-15);   // mur gauche (solide)
+      bxT(.4,5,10,woodHouse,1,3,7,2.5,-15);    // mur droit (solide)
+      bxT(14.4,5,.4,woodHouse,4,1,0,2.5,-20);  // mur du fond (solide)
+      bxT(6,5,.4,woodHouse,2,1,-4,2.5,-10);    // façade — pan gauche de la porte (solide)
+      bxT(6,5,.4,woodHouse,2,1,4,2.5,-10);     // façade — pan droit de la porte (solide)
+      bxT(14,.08,10,woodHouse,3,2,0,.04,-15,0,0,true);  // plancher intérieur (fin, non solide)
+      bx(2.2,.25,.25,0x3a2410,0,3.05,-10,0,0,true);     // linteau de porte
       bx(15,.3,11,0x6b3a18,0,5.05,-15,0,0,true);
       bx(16,1.2,12,0x8a3020,0,5.5,-15,0,0,true);
       addWindow(4,2.6,-9.9,0,1.6,1.6,0x5a3c20,0x88ccee);
       addWindow(-4,2.6,-9.9,0,1.6,1.6,0x5a3c20,0x88ccee);
-      bx(2,3,.3,0x4a2c14,0,1.5,-9.85,0,0,true);
+      // Mobilier simple à l'intérieur pour donner une raison d'entrer
+      bx(2.4,.8,1,0x6b4a2a,0,.4,-18,0,0,true);          // table
+      bx(.6,1.6,.6,0x8a6440,-6,.8,-18,0,0,true);        // armoire
       for(let x=-30;x<=30;x+=4)bx(.15,1.1,.15,0x6b4a2a,x,.55,20);
       bx(60,.12,.12,0x6b4a2a,0,.9,20,0,0,true);
       [[18,10],[22,14],[15,16]].forEach(([x,z])=>cy(1.3,1.3,1.6,10,0xd8b840,x,.8,z));
@@ -1224,13 +1396,19 @@ function buildMap(id){
         const lolli=new THREE.Mesh(new THREE.TorusKnotGeometry(.3,.1,40,6,2,3),new THREE.MeshStandardMaterial({map:texStripe('candy'+(i%3),'#ffffff',candyHex,45),roughness:.3}));
         lolli.position.set(x,2.2,z);addM(lolli);
       }
-      [[15,15],[-15,15],[15,-15],[-15,-15]].forEach(([x,z])=>{
+      [[15,15],[-15,15],[8,-8],[-15,-15]].forEach(([x,z])=>{
         cy(.35,.35,5,10,0xffffff,x,2.5,z).material.map=texStripe('cane','#ff3355','#ffffff',40);
         addCol(x,2.5,z,.7,5,.7);
       });
       const choc=new THREE.Mesh(new THREE.PlaneGeometry(60,4),new THREE.MeshStandardMaterial({color:0x3a2010,roughness:.15,metalness:.35}));
       choc.rotation.x=-Math.PI/2;choc.position.set(0,.02,-25);addM(choc);
-      bx(6,4,6,0xa06840,15,2,-15,0,0,true);
+      // Maison en pain d'épice creuse, avec une vraie porte (pas un bloc plein)
+      bx(.3,4,6,0xa06840,12,2,-15);           // mur gauche (solide)
+      bx(.3,4,6,0xa06840,18,2,-15);           // mur droit (solide)
+      bx(6,4,.3,0xa06840,15,2,-18);           // mur du fond (solide)
+      bx(2.1,4,.3,0xa06840,13.05,2,-12);      // façade — pan gauche de la porte (solide)
+      bx(2.1,4,.3,0xa06840,16.95,2,-12);      // façade — pan droit de la porte (solide)
+      bx(6,.08,6,0xc48a5a,15,.04,-15,0,0,true);        // plancher intérieur (fin, non solide)
       bx(8,.5,8,0xffe8f0,15,4.3,-15,0,Math.PI/4,true);
       ptLight(0xff99dd,1.0,40,0,5,0);
       break;
@@ -1301,6 +1479,19 @@ function buildModeUI(){
 }
 buildModeUI();
 
+function buildBodyUI(){
+  const g=document.getElementById('body-grid');g.innerHTML='';
+  BODY_TYPES.forEach(b=>{
+    const t=document.createElement('div');
+    t.className='map-tile'+(b.id===myBodyType?' sel':'');
+    t.title=b.desc;
+    t.innerHTML='<div class="map-tile-icon">'+b.icon+'</div><div class="map-tile-name">'+b.name+'</div>';
+    t.onclick=()=>{myBodyType=b.id;document.querySelectorAll('#body-grid .map-tile').forEach(x=>x.classList.remove('sel'));t.classList.add('sel');};
+    g.appendChild(t);
+  });
+}
+buildBodyUI();
+
 const PLIMITS={hunters:[1,8],waitTime:[10,180],gameTime:[60,600],ammo:[1,30]};
 function adj(k,d){
   if(!isHost)return;
@@ -1335,7 +1526,7 @@ document.getElementById('l-join').onclick=()=>{
     if(Object.values(ex).some(p=>p.name?.toLowerCase()===myName.toLowerCase())){lstat('⚠ Pseudo déjà pris');return;}
     if(Object.keys(ex).length>=24){lstat('⚠ Salle pleine (24 max)');return;}
 
-    roomRef.child('players/'+myId).set({name:myName,x:0,y:1,z:5,ry:0,pose:0,role:'hider',dead:false,kills:0,ready:false,colors:JSON.stringify(myColors)});
+    roomRef.child('players/'+myId).set({name:myName,x:0,y:1,z:5,ry:0,pose:0,role:'hider',dead:false,kills:0,ready:false,colors:JSON.stringify(myColors),bodyType:myBodyType,painted:false});
     roomRef.child('players/'+myId).onDisconnect().remove();
 
     let fullyJoined=false;
@@ -1347,14 +1538,19 @@ document.getElementById('l-join').onclick=()=>{
         if(id===myId)return;
         if(!players[id]){
           const cols=p.colors?JSON.parse(p.colors):null;
-          const mesh=createMannequin(cols);
+          const mesh=createCharacterMesh(p.bodyType||'meccha',cols);
           scene.add(mesh);
-          players[id]={mesh,...p};
+          players[id]={mesh,...p,_lastPaintTex:null};
+          if(p.paintTex){applyRemotePaint(mesh,p.paintTex);players[id]._lastPaintTex=p.paintTex;}
         }else{
           const prev=players[id];
           Object.assign(prev,p);
-          // Couleurs
-          if(p.colors){try{const c=JSON.parse(p.colors);ZONES.filter(z=>z!=='all').forEach(z=>{if(c[z])applyZoneColor(prev.mesh,z,c[z].h,c[z].s,c[z].l,c[z].met||0,c[z].rug||50);});}catch(e){}}
+          // Les coups de pinceau ne sont ré-appliqués que si la texture a changé
+          // (sinon chaque tick de position effacerait les détails peints).
+          if(p.paintTex&&p.paintTex!==prev._lastPaintTex){
+            applyRemotePaint(prev.mesh,p.paintTex);
+            prev._lastPaintTex=p.paintTex;
+          }
         }
       });
       Object.keys(players).forEach(id=>{if(!d[id]){scene.remove(players[id].mesh);delete players[id];}});
@@ -1664,47 +1860,107 @@ function applyPaint(zone){
     if(myMesh)applyZoneColor(myMesh,z,Math.round(paintH),Math.round(paintS),paintL,paintMet,paintRug);
     if(pvMesh)applyZoneColor(pvMesh,z,Math.round(paintH),Math.round(paintS),paintL,paintMet,paintRug);
   });
-  roomRef.child('players/'+myId+'/colors').set(JSON.stringify(myColors));
+  schedulePaintSync();
 }
 
 document.getElementById('pp-apply-zone').onclick=()=>applyPaint(currentZone);
 document.getElementById('pp-apply-all').onclick=()=>applyPaint('all');
 
-// Clic sur le canvas preview pour peindre une zone
-pvCv.addEventListener('click',e=>{
-  if(!paintOpen)return;
+// ════════════════════════════════════════════════════
+//  PINCEAU LIBRE (équivalent Paint) — on peint directement
+//  sur la "feuille" du personnage, comme un vrai pinceau.
+// ════════════════════════════════════════════════════
+
+// Identifie la zone (tête/torse/bras/jambe) d'un objet en remontant sa hiérarchie
+function findZoneForObject(grp,obj){
+  let cur=obj;
+  const p=grp.userData.parts;
+  while(cur&&cur!==grp){
+    if(p){
+      if(cur===p.headGrp||cur.parent===p.headGrp)return 'head';
+      if(cur===p.armL||cur.parent===p.armL)return 'armL';
+      if(cur===p.armR||cur.parent===p.armR)return 'armR';
+      if(cur===p.legL||cur.parent===p.legL)return 'legL';
+      if(cur===p.legR||cur.parent===p.legR)return 'legR';
+      if(cur===p.torsoGrp||cur.parent===p.torsoGrp)return 'torso';
+    }
+    cur=cur.parent;
+  }
+  return 'torso';
+}
+
+// Peint une touche ronde de pinceau dans le canvas de la zone touchée
+function paintDabOnZone(grp,zone,color,radiusPx,u,v){
+  const mat=grp&&grp.userData.mats[zone];
+  if(!mat||!mat.userData.paintCtx)return;
+  const ctx=mat.userData.paintCtx;
+  const px=u*PAINT_TEX_SIZE, py=(1-v)*PAINT_TEX_SIZE;
+  ctx.beginPath();ctx.fillStyle=color;ctx.arc(px,py,radiusPx,0,Math.PI*2);ctx.fill();
+  mat.userData.paintTex.needsUpdate=true;
+}
+
+// Sérialise les 6 "feuilles" peintes en un petit JSON (base64) pour la sync réseau
+function serializeMyPaint(){
+  const out={};
+  if(!myMesh)return JSON.stringify(out);
+  ZONES.filter(z=>z!=='all').forEach(z=>{
+    const mat=myMesh.userData.mats[z];
+    if(mat&&mat.userData.paintCanvas)out[z]=mat.userData.paintCanvas.toDataURL('image/png');
+  });
+  return JSON.stringify(out);
+}
+
+let myPainted=false, paintSyncTimer=null;
+function schedulePaintSync(){
+  myPainted=true;
+  if(paintSyncTimer)return;
+  paintSyncTimer=setTimeout(()=>{
+    paintSyncTimer=null;
+    if(roomRef&&myId)roomRef.child('players/'+myId).update({paintTex:serializeMyPaint(),painted:true,colors:JSON.stringify(myColors)});
+  },350);
+}
+
+// Applique le JSON de touches peintes reçu d'un autre joueur sur son mannequin
+function applyRemotePaint(grp,paintTexJson){
+  if(!grp||!paintTexJson)return;
+  let data;
+  try{data=JSON.parse(paintTexJson);}catch(e){return;}
+  Object.keys(data).forEach(zone=>{
+    const mat=grp.userData.mats[zone];
+    if(!mat||!mat.userData.paintCtx)return;
+    const img=new Image();
+    img.onload=()=>{mat.userData.paintCtx.clearRect(0,0,PAINT_TEX_SIZE,PAINT_TEX_SIZE);mat.userData.paintCtx.drawImage(img,0,0,PAINT_TEX_SIZE,PAINT_TEX_SIZE);mat.userData.paintTex.needsUpdate=true;};
+    img.src=data[zone];
+  });
+}
+
+function brushPaintAt(clientX,clientY){
   const r=pvCv.getBoundingClientRect();
-  const x=(e.clientX-r.left)/r.width*2-1;
-  const y=-((e.clientY-r.top)/r.height)*2+1;
+  const x=(clientX-r.left)/r.width*2-1;
+  const y=-((clientY-r.top)/r.height)*2+1;
   const pRay=new THREE.Raycaster();
   pRay.setFromCamera({x,y},pvCamera);
   const meshes=[];
   if(pvMesh)pvMesh.traverse(c=>{if(c.isMesh)meshes.push(c);});
   const hits=pRay.intersectObjects(meshes);
-  if(hits.length>0){
-    // Identifier la zone cliquée
-    const obj=hits[0].object;
-    let zone='torso';
-    // Remonter dans la hiérarchie pour identifier la zone
-    let cur=obj;
-    while(cur&&cur!==pvMesh){
-      const p=pvMesh.userData.parts;
-      if(p){
-        if(cur===p.headGrp||cur.parent===p.headGrp){zone='head';break;}
-        if(cur===p.armL||cur.parent===p.armL){zone='armL';break;}
-        if(cur===p.armR||cur.parent===p.armR){zone='armR';break;}
-        if(cur===p.legL||cur.parent===p.legL){zone='legL';break;}
-        if(cur===p.legR||cur.parent===p.legR){zone='legR';break;}
-        if(cur===p.torsoGrp||cur.parent===p.torsoGrp){zone='torso';break;}
-      }
-      cur=cur.parent;
-    }
-    // Activer cette zone et appliquer
-    currentZone=zone;
-    document.querySelectorAll('.zone-btn').forEach(b=>{b.classList.toggle('active',b.dataset.zone===zone);});
-    applyPaint(zone);
-  }
-});
+  if(hits.length===0||!hits[0].uv)return;
+  const hit=hits[0];
+  const zone=findZoneForObject(pvMesh,hit.object);
+  const color='hsl('+Math.round(paintH)+','+Math.round(paintS)+'%,'+paintL+'%)';
+  const radiusPx=1+brushSize*1.4;
+  paintDabOnZone(pvMesh,zone,color,radiusPx,hit.uv.x,hit.uv.y);
+  paintDabOnZone(myMesh,zone,color,radiusPx,hit.uv.x,hit.uv.y);
+  myColors[zone]={h:Math.round(paintH),s:Math.round(paintS),l:paintL,met:paintMet,rug:paintRug};
+  schedulePaintSync();
+}
+
+let brushDown=false;
+pvCv.addEventListener('mousedown',e=>{if(!paintOpen)return;brushDown=true;brushPaintAt(e.clientX,e.clientY);});
+window.addEventListener('mousemove',e=>{if(brushDown&&paintOpen)brushPaintAt(e.clientX,e.clientY);});
+window.addEventListener('mouseup',()=>{brushDown=false;});
+pvCv.addEventListener('touchstart',e=>{if(!paintOpen)return;e.preventDefault();brushDown=true;const t=e.changedTouches[0];brushPaintAt(t.clientX,t.clientY);},{passive:false});
+pvCv.addEventListener('touchmove',e=>{if(!paintOpen||!brushDown)return;e.preventDefault();const t=e.changedTouches[0];brushPaintAt(t.clientX,t.clientY);},{passive:false});
+pvCv.addEventListener('touchend',()=>{brushDown=false;});
 
 // ════════════════════════════════════════════════════
 //  ROUE DE POSES
@@ -1898,9 +2154,9 @@ function loop(){
 
   // ── Mettre à jour mon mesh ──
   if(myMesh){
-    myMesh.position.set(pos.x,0,pos.z);
-    myMesh.rotation.y=camYaw+Math.PI; // face à la caméra
     applyPose(myMesh,currentPose);
+    myMesh.position.set(pos.x,(pos.y-EYE_H)+(myMesh.userData.poseYOffset||0),pos.z);
+    myMesh.rotation.y=camYaw+Math.PI; // face à la caméra
   }
 
   // ── Mettre à jour meshes autres joueurs ──
@@ -1908,12 +2164,11 @@ function loop(){
     if(!p.mesh)return;
     p.mesh.position.x+=(( p.x||0)-p.mesh.position.x)*.18;
     p.mesh.position.z+=((p.z||0)-p.mesh.position.z)*.18;
-    p.mesh.position.y=0;
-    p.mesh.rotation.y=p.ry||0;
     applyPose(p.mesh,p.pose||0);
+    p.mesh.position.y=((p.y||0)-EYE_H)+(p.mesh.userData.poseYOffset||0);
+    p.mesh.rotation.y=p.ry||0;
     // Opacité : caché bien peint = presque invisible pour chasseurs
-    const colored=p.colors&&p.colors!=='{"head":{"h":0,"s":0,"l":85},"torso":{"h":0,"s":0,"l":85},"armL":{"h":0,"s":0,"l":85},"armR":{"h":0,"s":0,"l":85},"legL":{"h":0,"s":0,"l":85},"legR":{"h":0,"s":0,"l":85}}';
-    const opacity=p.dead?.2:(p.role==='hider'&&colored&&myRole==='hunter')?.06:1;
+    const opacity=p.dead?.2:(p.role==='hider'&&p.painted&&myRole==='hunter')?.06:1;
     p.mesh.traverse(c=>{if(c.isMesh){c.material.transparent=opacity<1;c.material.opacity=opacity;}});
   });
 
@@ -1971,6 +2226,7 @@ function loop(){
     pvCamera.position.set(ox,oy,oz);
     pvCamera.lookAt(0,1,0);
     applyPose(pvMesh,currentPose);
+    pvMesh.position.y=pvMesh.userData.poseYOffset||0;
     pvRenderer.render(pvScene,pvCamera);
   }
 }
